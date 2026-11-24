@@ -69,6 +69,41 @@ npm run dev
 | 表目录同步 | `table_catalog` | 同步记录 | 记录标识、来源Catalog、目标Catalog |
 | 湖仓审计 | `lake_audit` | 审计报告 | 报告标识、审计范围、审计时间 |
 
+## 字段血缘核对证据包
+
+湖表血缘的字段级路径有两种核对形态，两条入口互补：
+
+- `lake_lineage` 通用工作台（`/lake_lineage`）：维护链路本身的上游表、下游表和转换算子。
+- **血缘核对证据包**专用页（`/lineage-evidence`）：把报表列的每一条血缘路径封装成证据包，
+  供异地审计下载、上传核对。后端服务在 `backend/app/services/lineage_evidence.py`，
+  接口前缀 `/api/lineage-evidence`。
+
+核对要点：
+
+- 同一报表列的多条路径**分别核对**，`net_sales` 的 `e-81`（上游→下游）和 `e-82`（下游→上游）
+  各自带方向、来源版本和证据标识；证据包漏掉任一路会被记为「路径未覆盖」异常，不会因为列名相同就合并。
+- 证据包一经签发即冻结。发布方更正证据后只新增证据修订，原包内容和摘要保持不变；
+  用原包核对时清单会显示「本次采用哪份证据、当前是哪份证据」，更正的证据单独列为待办。
+- 接收方重复提交同一个包不会重复累计异常（异常按「路径 + 类型」去重），
+  `submission_count` / `duplicate_submissions` 单独记录提交次数。
+- 断线恢复可用原包重演（`POST /api/lineage-evidence/audits/{id}/replay`），
+  重演只复算当时的异常，不会把复核清单回退到旧证据。
+- 证据包版本可在 `GET /api/lineage-evidence/packages` 查看，后发包通过 `supersedes` 指向上一版。
+
+常用接口：
+
+| 方法 | 路径 | 用途 |
+| --- | --- | --- |
+| GET | `/api/lineage-evidence/overview` | 证据包版本、签核结论、仍需补证关系总览 |
+| GET | `/api/lineage-evidence/checklist` | 血缘复核清单（每条路径的签核状态） |
+| POST | `/api/lineage-evidence/packages/export` | 按报表列生成证据包 |
+| GET | `/api/lineage-evidence/packages/{id}` | 查看证据包全文（供下载/异地核对） |
+| POST | `/api/lineage-evidence/evidence/{path_id}/correct` | 发布方更正证据 |
+| POST | `/api/lineage-evidence/evidence/{path_id}/supplement` | 为缺证据的路径补录 |
+| POST | `/api/lineage-evidence/audits` | 上传证据包完成异地核对、回写清单 |
+| GET | `/api/lineage-evidence/audits/{id}` | 签核详情：采用证据、当前证据、更正待办 |
+| POST | `/api/lineage-evidence/audits/{id}/replay` | 原包重演，验证异常计数不重复 |
+
 ## 约定
 
 - 全部模块共享`frontend/src/views/WorkbenchView.vue|tsx`和一套资源路由。
